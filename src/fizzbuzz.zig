@@ -1,7 +1,6 @@
 const std = @import("std");
 
-// fn fizzbuzz(writer: anytype, i: u32) !void {
-fn fizzbuzz(writer: std.io.Writer, i: u32) !void {
+fn fizzbuzz(writer: anytype, i: u32) !void {
     if (i % 15 == 0) {
         try writer.print("{s}\n", .{"FizzBuzz"});
     } else if (i % 3 == 0) {
@@ -25,8 +24,8 @@ test "basic test" {
     var bytes = std.ArrayList(u8).init(std.testing.allocator);
     defer bytes.deinit();
 
-    const T = struct { input: u8, want: []const u8 };
-    var tests = [_]T{
+    const TestType = struct { input: u8, want: []const u8 };
+    const tests = [_]TestType{
         .{ .input = 1, .want = "1\n" },
         .{ .input = 2, .want = "2\n" },
         .{ .input = 3, .want = "Fizz\n" },
@@ -46,8 +45,27 @@ test "basic test" {
 
     for (tests) |t| {
         bytes.clearAndFree();
-        std.log.info("{}", .{t.input});
+        std.debug.print("\n{d}", .{t.input});
         try fizzbuzz(bytes.writer(), t.input);
         try std.testing.expect(std.mem.eql(u8, bytes.items, t.want));
+    }
+
+    // items(), items.len, append(), appendSlice(), pop(), clearAndFree(), writer()
+    // 追加領域を確保した後も、それまで格納されていたデータは元の位置に残る
+    const L = std.SegmentedList(u32, 2);
+    var list = L{};
+    defer list.deinit(std.testing.allocator);
+    try list.append(std.testing.allocator, 1);
+    try list.append(std.testing.allocator, 2);
+    try list.append(std.testing.allocator, 3);
+    // try std.testing.expectEqual(@as(usize, 3), list.count());
+    {
+        // var it = list.constIterator(0);
+        var it = list.iterator(0);
+        var s: u32 = 0;
+        while (it.next()) |item| {
+            s += item.*;
+        }
+        // try std.testing.expectEqual(@as(u32, 6), s);
     }
 }
