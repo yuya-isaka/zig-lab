@@ -32,11 +32,9 @@ test "io reader usage" {
     try std.testing.expect(std.mem.eql(u8, contents, message));
 }
 
-fn nextLine(reader: anytype, buffer: []u8) !?[]const u8 {
-    // 指定されたデリミタ（'\n'）かファイルの終わり（EOF）まで読み取る
+fn nextLine(reader: anytype, buffer: []u8) !?[]u8 {
     var line = try reader.readUntilDelimiterOrEof(buffer, '\n') orelse return null;
-    if (builtin.os.tag == .windows) {
-        //  行の末尾から\r（キャリッジリターン、Windowsの改行スタイルで一般的）を削除します。これは、Windowsでは改行が\r\nで表されるため、読み取り時に\rが余計に含まれてしまう場合があるためです。
+    if (@import("builtin").os.tag == .windows) {
         return std.mem.trimRight(u8, line, "\r");
     } else {
         return line;
@@ -55,4 +53,79 @@ test "read until next line" {
         "What is your name? {s}",
         .{input},
     );
+}
+
+const MyByteList = struct {
+    data: [100]u8 = undefined,
+    items: []u8 = &[_]u8{},
+
+    const Writer = std.io.Writer(
+        *MyByteList,
+        error{EndOfBuffer},
+        appendWrite,
+    );
+
+    fn appendWrite(self: *MyByteList, data: []const u8) error{EndOfBuffer}!usize {
+        if (self.items.len + data.len > self.data.len) {
+            return error.EndOfBuffer;
+        }
+        @memcpy(self.data[self.items.len..][0..data.len], data);
+        self.items = self.data[0 .. self.items.len + data.len];
+        return data.len;
+    }
+
+    fn writer(self: *MyByteList) Writer {
+        return .{ .context = self };
+    }
+};
+
+test "custom writer" {
+    var bytes = MyByteList{};
+    _ = try bytes.writer().write("Hello");
+    _ = try bytes.writer().write(" Writer");
+    try std.testing.expect(std.mem.eql(u8, bytes.items, "Hello Writer"));
+
+    const foo = try std.fmt.allocPrint(
+        std.testing.allocator,
+        "{s}",
+        .{"Hello Yuya"},
+    );
+    defer std.testing.allocator.free(foo);
+
+    try std.testing.expect(std.mem.eql(u8, foo, "Hello Yuya"));
+
+    std.debug.print("\n{s}\n", .{foo});
+}
+
+test "json parse" {
+    const Place = struct { foo: i32, bar: []const u8 };
+    const parsed = try std.json.parseFromSlice(
+        Place,
+        test_allocator,
+        \\{ "foo": 42, "bar": "hello" }
+    ,
+        .{},
+    );
+    defer parsed.deinit();
+
+    const before = Place{ .foo = 42, .bar = "Hello" };
+    var buffer: [100]u8 = undefined;
+    var fba = std.heap.FixedBufferAllocator.init(&buffer);
+    var after = std.ArrayList(u8).init(fba.allocator());
+    try std.json.stringify(before, .{}, after.writer());
+    try std.testing.expect(std.mem.eql(u8, after.items,
+        \\{"foo":42,"bar":"Hello"}
+    ));
+
+    const native = @import("builtin").cpu.arch.endian();
+    const content = try std.fmt.allocPrint(
+        std.testing.allocator,
+        "{any}",
+        .{native},
+    );
+    defer std.testing.allocator.free(content);
+
+    try std.testing.expect(std.mem.eql(u8, content, "builtin.Endian.Little"));
+
+    std.debug.print("\n{s}\n", .{content});
 }
